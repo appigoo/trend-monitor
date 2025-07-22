@@ -1,230 +1,279 @@
 import yfinance as yf
 import pandas as pd
 import streamlit as st
-import datetime
+import plotly.graph_objects as go
 
-# --- 配置與用戶輸入 ---
+# --- 配置與相容性檢查 ---
+VALID_INTERVALS = {
+    "1m": ["1d", "5d"],
+    "2m": ["1d", "5d", "1mo"],
+    "5m": ["1d", "5d", "1mo"],
+    "15m": ["1d", "5d", "1mo"],
+    "30m": ["1d", "5d", "1mo", "3mo"],
+    "60m": ["1d", "5d", "1mo", "3mo", "6mo"],
+    "90m": ["1d", "5d", "1mo", "3mo", "6mo"],
+    "1h": ["1d", "5d", "1mo", "3mo", "6mo"],
+    "1d": ["1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"],
+    "5d": ["3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"],
+    "1wk": ["1y", "2y", "5y", "10y", "ytd", "max"],
+    "1mo": ["5y", "10y", "ytd", "max"],
+    "3mo": ["10y", "max"]
+}
+
+# --- 用戶輸入界面 ---
 st.sidebar.header("股票設定")
 
-# 股票代碼輸入，並轉換為大寫以保持一致性
-symbol = st.sidebar.text_input("輸入股票代碼 (例如: AAPL)", "AAPL").upper()
+# 股票代碼輸入並驗證
+symbol = st.sidebar.text_input("輸入股票代碼 (例如: AAPL)", "AAPL").upper().strip()
+if not symbol or not symbol.isalnum():
+    st.sidebar.error("請輸入有效的股票代碼（僅限字母和數字）。")
+    symbol = "AAPL"  # 恢復預設值
 
-# 數據間隔選擇，增加了更多選項
-interval = st.sidebar.selectbox(
-    "數據間隔",
-    ["1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h", "1d", "5d", "1wk", "1mo", "3mo"],
-    index=3 # 預設選擇 '15m'
-)
-
-# 數據週期選擇器，替換了日期選擇器
+# 數據週期選擇
 period = st.sidebar.selectbox(
     "數據週期",
     ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"],
-    index=2 # 預設選擇 '1mo'
+    index=2  # 預設 '1mo'
 )
 
-# 觸發數據獲取的按鈕
+# 動態更新 interval 選項
+available_intervals = [interval for interval, periods in VALID_INTERVALS.items() if period in periods]
+interval = st.sidebar.selectbox(
+    "數據間隔",
+    available_intervals,
+    index=available_intervals.index("15m") if "15m" in available_intervals else 0
+)
+
+# 觸發數據獲取
 fetch_button = st.sidebar.button("獲取數據")
 
 # --- 函數：數據下載與快取 ---
-
-@st.cache_data(ttl=3600) # 快取數據，有效期為1小時
+@st.cache_data(ttl=lambda: 300 if interval in ["1m", "2m", "5m", "15m"] else 3600)
 def get_stock_data(ticker_symbol, period_val, interval_val):
     """
     從 Yahoo Finance 下載股票數據。
-    使用 Streamlit 的快取功能提升性能。
+    動態快取時間根據間隔調整（分鐘級數據快取5分鐘，其他1小時）。
     """
     try:
         with st.spinner(f"正在下載 {ticker_symbol} 的數據..."):
-            # 使用 period 參數下載數據
-            data = yf.download(ticker_symbol, period=period_val, interval=interval_val)
+            data = yf.download(ticker_symbol, period=period_val, interval=interval_val, progress=False)
         if data.empty:
             st.warning(f"沒有找到 {ticker_symbol} 在週期 {period_val} 內，間隔為 {interval_val} 的數據。請檢查股票代碼或數據週期。")
             return None
         return data
+    except ValueError as ve:
+        st.error(f"無效的參數組合：{ve}。請檢查數據週期和間隔是否相容。")
+        return None
     except Exception as e:
-        st.error(f"下載數據時發生錯誤: {e}")
+        st.error(f"下載數據失敗：{e}。可能是網絡問題或無效的股票代碼。")
         return None
 
-# --- 函數：指標計算與快取 ---
-
-@st.cache_data(ttl=3600) # 快取指標計算結果
+# --- 函數：指標計算 ---
+@st.cache_data(ttl=3600)
 def calculate_indicators(df):
     """
-    為給定的 DataFrame 計算各種技術指標。
+    為給定的 DataFrame 計算技術指標。
+    返回包含所有指標的 DataFrame。
     """
     if df is None or df.empty:
         st.warning("輸入數據為空，無法計算指標。")
         return None
 
-    df_copy = df.copy() # 在數據副本上操作，避免 SettingWithCopyWarning
+    df_copy = df.copy()
+    warnings = []
 
-    # 初始化所有指標列為 NaN，確保它們在任何情況下都存在且長度正確
-    df_copy["MA20"] = pd.NA
-    df_copy["EMA20"] = pd.NA
-    df_copy["MACD"] = pd.NA
-    df_copy["Signal"] = pd.NA
-    df_copy["Upper"] = pd.NA
-    df_copy["Lower"] = pd.NA
+    # 初始化指標列
+    indicators = ["MA20", "EMA20", "MACD", "Signal", "Upper", "Lower"]
+    for ind in indicators:
+        df_copy[ind] = pd.NA
 
-    # 移動平均線 (Moving Averages)
-    if len(df_copy) >= 20:
+    # 檢查數據點數量
+    def check_data_length(min_length, indicator_name):
+        if len(df_copy) < min_length:
+            warnings.append(f"數據點不足以計算 {indicator_name} (需要至少 {min_length} 個點)。")
+            return False
+        return True
+
+    # 移動平均線
+    if check_data_length(20, "MA20 和 EMA20"):
         df_copy["MA20"] = df_copy["Close"].rolling(window=20).mean()
         df_copy["EMA20"] = df_copy["Close"].ewm(span=20, adjust=False).mean()
-    else:
-        st.warning("數據點不足以計算MA20和EMA20 (至少需要20個點)。")
 
-
-    # MACD (Moving Average Convergence Divergence)
-    if len(df_copy) >= 26: # EMA26 需要至少26個週期
+    # MACD
+    if check_data_length(26, "MACD"):
         ema12 = df_copy["Close"].ewm(span=12, adjust=False).mean()
         ema26 = df_copy["Close"].ewm(span=26, adjust=False).mean()
         df_copy["MACD"] = ema12 - ema26
         df_copy["Signal"] = df_copy["MACD"].ewm(span=9, adjust=False).mean()
-    else:
-        st.warning("數據點不足以計算MACD (至少需要26個點)。")
 
-    # 布林帶 (Bollinger Bands)
-    if len(df_copy) >= 20: # MA20 和標準差需要至少20個週期
-        # Ensure MA20 is calculated before using it for Bollinger Bands
-        # 使用 .notna().any() 檢查 MA20 是否有任何非 NaN 值
-        if df_copy["MA20"].notna().any():
-            df_copy["Upper"] = df_copy["MA20"] + 2 * df_copy["Close"].rolling(window=20).std()
-            df_copy["Lower"] = df_copy["MA20"] - 2 * df_copy["Close"].rolling(window=20).std()
-        else:
-            st.warning("MA20數據不足，無法計算布林帶。")
-    else:
-        st.warning("數據點不足以計算布林帶 (至少需要20個點)。")
+    # 布林帶
+    if check_data_length(20, "布林帶") and df_copy["MA20"].notna().any():
+        df_copy["Upper"] = df_copy["MA20"] + 2 * df_copy["Close"].rolling(window=20).std()
+        df_copy["Lower"] = df_copy["MA20"] - 2 * df_copy["Close"].rolling(window=20).std()
+    elif not df_copy["MA20"].notna().any():
+        warnings.append("MA20數據不足，無法計算布林帶。")
+
+    # 顯示所有警告
+    if warnings:
+        st.warning("\n".join(warnings))
 
     return df_copy
 
 # --- 函數：趨勢分析 ---
-
 def analyze_trend(df):
     """
-    根據最新的數據和指標分析股票趨勢。
+    根據技術指標分析股票趨勢。
+    返回趨勢描述和詳細解釋。
     """
-    if df is None or df.empty:
-        return "無數據"
+    if df is None or df.empty or "Close" not in df.columns:
+        return "無數據", "無法分析趨勢：數據缺失或無效。"
 
-    # 獲取最新一行的數據
+    # 提取最新數據
     latest = df.iloc[-1]
-    # 預設趨勢為震盪
     trend_message = "震盪 ↔️"
+    explanation = []
 
-    # 在進行比較前，檢查關鍵指標是否存在 NaN 值
-    # 使用 .item() 確保獲取的是標量值，避免 Series 的布林值歧義錯誤
-    try:
-        # 檢查 'Close' 列是否存在於 latest Series 中，並確保其不是 NaN
-        if "Close" not in latest or pd.isna(latest["Close"].item()):
-            return "最新收盤價數據缺失或無效，無法判斷趨勢"
-    except ValueError: # 如果 .item() 失敗 (例如，latest["Close"] 不是單一標量)
-        return "最新收盤價數據格式異常，無法判斷趨勢"
-    except KeyError: # 如果 'Close' 列不存在
-        return "數據中缺少 'Close' 列，無法判斷趨勢"
+    # 提取指標值
+    def get_indicator(indicator):
+        try:
+            return latest[indicator].item() if indicator in latest and not pd.isna(latest[indicator]) else None
+        except (ValueError, KeyError):
+            return None
 
-    # 提取所有需要判斷的標量值，並處理潛在的 KeyError
-    try:
-        close_price = latest["Close"].item()
-        ma20 = latest["MA20"].item() if "MA20" in latest else pd.NA
-        ema20 = latest["EMA20"].item() if "EMA20" in latest else pd.NA
-        macd = latest["MACD"].item() if "MACD" in latest else pd.NA
-        signal = latest["Signal"].item() if "Signal" in latest else pd.NA
-        upper_band = latest["Upper"].item() if "Upper" in latest else pd.NA
-        lower_band = latest["Lower"].item() if "Lower" in latest else pd.NA
-    except ValueError:
-        return "數據格式異常，無法提取指標值"
-    except KeyError as e:
-        return f"缺少關鍵指標列: {e}，無法判斷趨勢"
+    close_price = get_indicator("Close")
+    ma20 = get_indicator("MA20")
+    ema20 = get_indicator("EMA20")
+    macd = get_indicator("MACD")
+    signal = get_indicator("Signal")
+    upper_band = get_indicator("Upper")
+    lower_band = get_indicator("Lower")
 
-    # 布林帶突破判斷
-    if not pd.isna(upper_band) and close_price > upper_band:
-        trend_message = "可能突破上漲 📈 (布林帶)"
-    elif not pd.isna(lower_band) and close_price < lower_band:
-        trend_message = "可能突破下跌 📉 (布林帶)"
-    # MACD 金叉/死叉判斷 (需要前一個數據點來判斷交叉)
-    elif not pd.isna(macd) and not pd.isna(signal) and len(df) >= 2:
-        # 確保前一個數據點的 MACD 和 Signal 也存在
-        prev_macd = df["MACD"].iloc[-2].item() if "MACD" in df.columns else pd.NA
-        prev_signal = df["Signal"].iloc[-2].item() if "Signal" in df.columns else pd.NA
+    if close_price is None:
+        return "無數據", "最新收盤價數據缺失或無效，無法判斷趨勢。"
 
-        if not pd.isna(prev_macd) and not pd.isna(prev_signal):
-            # MACD 金叉：MACD 線上穿 Signal 線
-            if macd > signal and prev_macd <= prev_signal:
-                trend_message = "MACD金叉，上漲趨勢可能形成 🔼"
-            # MACD 死叉：MACD 線下穿 Signal 線
-            elif macd < signal and prev_macd >= prev_signal:
-                trend_message = "MACD死叉，下跌趨勢可能形成 🔽"
-            # MACD 線在 Signal 線上方，表示看漲
-            elif macd > signal:
-                trend_message = "MACD看漲，上漲趨勢中 ⬆️"
-            # MACD 線在 Signal 線下方，表示看跌
-            elif macd < signal:
-                trend_message = "MACD看跌，下跌趨勢中 ⬇️"
+    # 布林帶判斷
+    if upper_band is not None and lower_band is not None:
+        if close_price > upper_band:
+            trend_message = "可能突破上漲 📈"
+            explanation.append("收盤價突破布林帶上軌，顯示強勢上漲信號。")
+        elif close_price < lower_band:
+            trend_message = "可能突破下跌 📉"
+            explanation.append("收盤價跌破布林帶下軌，顯示強勢下跌信號。")
 
-    # 簡單的移動平均線判斷 (作為補充或備用)
-    # 僅在布林帶和MACD沒有給出更明確的趨勢時才使用
-    if not pd.isna(ma20) and not pd.isna(ema20):
+    # MACD 判斷
+    if macd is not None and signal is not None and len(df) >= 2:
+        prev_row = df.iloc[-2]
+        prev_macd = get_indicator("MACD") if "MACD" in prev_row else None
+        prev_signal = get_indicator("Signal") if "Signal" in prev_row else None
+        if prev_macd is not None and prev_signal is not None:
+            prev_macd = prev_row["MACD"].item() if "MACD" in prev_row else None
+            prev_signal = prev_row["Signal"].item() if "Signal" in prev_row else None
+            if prev_macd is not None and prev_signal is not None:
+                if macd > signal and prev_macd <= prev_signal:
+                    trend_message = "MACD金叉，上漲趨勢可能形成 🔼"
+                    explanation.append("MACD線上穿信號線，形成金叉，預示上漲趨勢。")
+                elif macd < signal and prev_macd >= prev_signal:
+                    trend_message = "MACD死叉，下跌趨勢可能形成 🔽"
+                    explanation.append("MACD線下穿信號線，形成死叉，預示下跌趨勢。")
+                elif macd > signal:
+                    trend_message = "MACD看漲，上漲趨勢中 ⬆️"
+                    explanation.append("MACD線位於信號線上方，顯示看漲趨勢。")
+                elif macd < signal:
+                    trend_message = "MACD看跌，下跌趨勢中 ⬇️"
+                    explanation.append("MACD線位於信號線下方，顯示看跌趨勢。")
+
+    # 移動平均線判斷（作為備用）
+    if ma20 is not None and ema20 is not None and "上漲" not in trend_message and "下跌" not in trend_message:
         if close_price > ma20 and close_price > ema20:
-            # 如果當前趨勢判斷不是更具體的上漲，則更新為上漲趨勢
-            if "上漲" not in trend_message and "下跌" not in trend_message: # Avoid overwriting more specific trends
-                trend_message = "上漲趨勢 ⬆️"
+            trend_message = "上漲趨勢 ⬆️"
+            explanation.append("收盤價高於20日均線和指數移動平均線，顯示上漲趨勢。")
         elif close_price < ma20 and close_price < ema20:
-            # 如果當前趨勢判斷不是更具體的下跌，則更新為下跌趨勢
-            if "上漲" not in trend_message and "下跌" not in trend_message: # Avoid overwriting more specific trends
-                trend_message = "下跌趨勢 ⬇️"
+            trend_message = "下跌趨勢 ⬇️"
+            explanation.append("收盤價低於20日均線和指數移動平均線，顯示下跌趨勢。")
 
-    return trend_message
+    # 歷史趨勢分析
+    if len(df) >= 5:
+        recent_closes = df["Close"].tail(5)
+        if recent_closes.is_monotonic_increasing:
+            explanation.append("過去5個交易日收盤價持續上漲，顯示短期強勢。")
+        elif recent_closes.is_monotonic_decreasing:
+            explanation.append("過去5個交易日收盤價持續下跌，顯示短期弱勢。")
+
+    return trend_message, "\n".join(explanation) if explanation else "無明確趨勢信號。"
 
 # --- 主應用程式邏輯 ---
 st.title("📊 股票趨勢監測系統")
 
-# 當點擊「獲取數據」按鈕時執行
 if fetch_button:
-    # 1. 下載數據
-    # 傳遞 period 參數給 get_stock_data
     stock_data = get_stock_data(symbol, period, interval)
-
     if stock_data is not None:
-        # 2. 計算指標
         data_with_indicators = calculate_indicators(stock_data)
-
         if data_with_indicators is not None:
-            # 3. 分析趨勢
-            current_trend = analyze_trend(data_with_indicators)
-
-            # 顯示股票代碼和趨勢判斷
+            # 趨勢分析
+            trend_message, trend_explanation = analyze_trend(data_with_indicators)
             st.write(f"當前股票：**{symbol}**")
-            st.markdown(f"**趨勢判斷：{current_trend}**")
+            st.markdown(f"**趨勢判斷：{trend_message}**")
+            st.markdown(f"**趨勢解釋：**\n{trend_explanation}")
 
-            # 繪製價格與移動平均線圖
+            # 價格與移動平均線圖
             st.subheader("價格與移動平均線")
-            # 確保只繪製 DataFrame 中存在的列，並且該列包含至少一個非 NaN 值
+            fig_price = go.Figure()
             plot_cols_price = ["Close", "MA20", "EMA20", "Upper", "Lower"]
-            available_price_cols = [col for col in plot_cols_price if col in data_with_indicators.columns and data_with_indicators[col].notna().any()]
-            if available_price_cols:
-                st.line_chart(data_with_indicators[available_price_cols])
-            else:
-                st.info("沒有足夠的價格或移動平均線數據可供繪製。")
+            colors = ["blue", "orange", "green", "red", "red"]
+            for col, color in zip(plot_cols_price, colors):
+                if col in data_with_indicators.columns and data_with_indicators[col].notna().any():
+                    fig_price.add_trace(go.Scatter(
+                        x=data_with_indicators.index,
+                        y=data_with_indicators[col],
+                        name=col,
+                        line=dict(color=color, dash="dash" if col in ["Upper", "Lower"] else "solid")
+                    ))
+            fig_price.update_layout(
+                title=f"{symbol} 價格與移動平均線",
+                xaxis_title="日期",
+                yaxis_title="價格",
+                showlegend=True,
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig_price, use_container_width=True)
 
-
-            # 繪製 MACD 指標圖
+            # MACD 圖
             st.subheader("MACD 指標")
+            fig_macd = go.Figure()
             plot_cols_macd = ["MACD", "Signal"]
-            available_macd_cols = [col for col in plot_cols_macd if col in data_with_indicators.columns and data_with_indicators[col].notna().any()]
-            if available_macd_cols:
-                st.line_chart(data_with_indicators[available_macd_cols])
-            else:
-                st.info("沒有足夠的MACD數據可供繪製。")
+            for col, color in zip(plot_cols_macd, ["blue", "orange"]):
+                if col in data_with_indicators.columns and data_with_indicators[col].notna().any():
+                    fig_macd.add_trace(go.Scatter(
+                        x=data_with_indicators.index,
+                        y=data_with_indicators[col],
+                        name=col,
+                        line=dict(color=color)
+                    ))
+            fig_macd.update_layout(
+                title=f"{symbol} MACD 指標",
+                xaxis_title="日期",
+                yaxis_title="MACD",
+                showlegend=True,
+                hovermode="x unified"
+            )
+            st.plotly_chart(fig_macd, use_container_width=True)
 
-
-            # 顯示最新數據概覽
+            # 數據概覽
             st.subheader("最新數據概覽")
-            st.dataframe(data_with_indicators.tail(10))
+            num_rows = st.slider("顯示的數據行數", 5, 50, 10)
+            st.dataframe(data_with_indicators.tail(num_rows))
+
+            # 數據導出
+            csv = data_with_indicators.to_csv(index=True)
+            st.download_button(
+                label="下載數據為 CSV",
+                data=csv,
+                file_name=f"{symbol}_data.csv",
+                mime="text/csv"
+            )
         else:
             st.info("無法計算指標，請檢查數據是否足夠。")
     else:
         st.info("無法獲取股票數據。請檢查股票代碼或網路連接。")
 else:
-    # 應用程式啟動時的提示訊息
     st.info("請在左側邊欄輸入股票代碼、選擇數據週期和數據間隔，然後點擊 '獲取數據'。")
