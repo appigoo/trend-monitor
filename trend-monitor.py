@@ -52,34 +52,45 @@ def calculate_indicators(df):
     為給定的 DataFrame 計算各種技術指標。
     """
     if df is None or df.empty:
+        st.warning("輸入數據為空，無法計算指標。")
         return None
 
     df_copy = df.copy() # 在數據副本上操作，避免 SettingWithCopyWarning
 
+    # 初始化所有指標列為 NaN，確保它們在任何情況下都存在且長度正確
+    df_copy["MA20"] = pd.NA
+    df_copy["EMA20"] = pd.NA
+    df_copy["MACD"] = pd.NA
+    df_copy["Signal"] = pd.NA
+    df_copy["Upper"] = pd.NA
+    df_copy["Lower"] = pd.NA
+
     # 移動平均線 (Moving Averages)
-    df_copy["MA20"] = df_copy["Close"].rolling(window=20).mean()
-    df_copy["EMA20"] = df_copy["Close"].ewm(span=20, adjust=False).mean()
+    if len(df_copy) >= 20:
+        df_copy["MA20"] = df_copy["Close"].rolling(window=20).mean()
+        df_copy["EMA20"] = df_copy["Close"].ewm(span=20, adjust=False).mean()
+    else:
+        st.warning("數據點不足以計算MA20和EMA20 (至少需要20個點)。")
+
 
     # MACD (Moving Average Convergence Divergence)
-    # 確保有足夠的數據點來計算 EMA
     if len(df_copy) >= 26: # EMA26 需要至少26個週期
         ema12 = df_copy["Close"].ewm(span=12, adjust=False).mean()
         ema26 = df_copy["Close"].ewm(span=26, adjust=False).mean()
         df_copy["MACD"] = ema12 - ema26
         df_copy["Signal"] = df_copy["MACD"].ewm(span=9, adjust=False).mean()
     else:
-        df_copy["MACD"] = pd.NA # 使用 pandas 的 NA 表示缺失值
-        df_copy["Signal"] = pd.NA
         st.warning("數據點不足以計算MACD (至少需要26個點)。")
 
     # 布林帶 (Bollinger Bands)
-    # 確保有足夠的數據點來計算滾動標準差和平均值
     if len(df_copy) >= 20: # MA20 和標準差需要至少20個週期
-        df_copy["Upper"] = df_copy["MA20"] + 2 * df_copy["Close"].rolling(window=20).std()
-        df_copy["Lower"] = df_copy["MA20"] - 2 * df_copy["Close"].rolling(window=20).std()
+        # Ensure MA20 is calculated before using it for Bollinger Bands
+        if not df_copy["MA20"].isnull().all(): # Check if MA20 actually has values
+            df_copy["Upper"] = df_copy["MA20"] + 2 * df_copy["Close"].rolling(window=20).std()
+            df_copy["Lower"] = df_copy["MA20"] - 2 * df_copy["Close"].rolling(window=20).std()
+        else:
+            st.warning("MA20數據不足，無法計算布林帶。")
     else:
-        df_copy["Upper"] = pd.NA
-        df_copy["Lower"] = pd.NA
         st.warning("數據點不足以計算布林帶 (至少需要20個點)。")
 
     return df_copy
@@ -98,9 +109,10 @@ def analyze_trend(df):
     # 預設趨勢為震盪
     trend_message = "震盪 ↔️"
 
-    # 在進行比較前，檢查指標是否存在 NaN 值
-    if pd.isna(latest["Close"]) or pd.isna(latest["MA20"]) or pd.isna(latest["EMA20"]):
-        return "數據不足，無法判斷趨勢"
+    # 在進行比較前，檢查關鍵指標是否存在 NaN 值
+    # 這裡只檢查 Close，因為其他指標可能因為數據不足而為 NaN，這在邏輯中會處理
+    if pd.isna(latest["Close"]):
+        return "最新收盤價數據缺失，無法判斷趨勢"
 
     # 布林帶突破判斷
     if not pd.isna(latest["Upper"]) and latest["Close"] > latest["Upper"]:
@@ -123,14 +135,16 @@ def analyze_trend(df):
             trend_message = "MACD看跌，下跌趨勢中 ⬇️"
 
     # 簡單的移動平均線判斷 (作為補充或備用)
-    if latest["Close"] > latest["MA20"] and latest["Close"] > latest["EMA20"]:
-        # 如果當前趨勢判斷不是更具體的上漲，則更新為上漲趨勢
-        if "上漲" not in trend_message:
-            trend_message = "上漲趨勢 ⬆️"
-    elif latest["Close"] < latest["MA20"] and latest["Close"] < latest["EMA20"]:
-        # 如果當前趨勢判斷不是更具體的下跌，則更新為下跌趨勢
-        if "下跌" not in trend_message:
-            trend_message = "下跌趨勢 ⬇️"
+    # 僅在布林帶和MACD沒有給出更明確的趨勢時才使用
+    if not pd.isna(latest["MA20"]) and not pd.isna(latest["EMA20"]):
+        if latest["Close"] > latest["MA20"] and latest["Close"] > latest["EMA20"]:
+            # 如果當前趨勢判斷不是更具體的上漲，則更新為上漲趨勢
+            if "上漲" not in trend_message and "下跌" not in trend_message: # Avoid overwriting more specific trends
+                trend_message = "上漲趨勢 ⬆️"
+        elif latest["Close"] < latest["MA20"] and latest["Close"] < latest["EMA20"]:
+            # 如果當前趨勢判斷不是更具體的下跌，則更新為下跌趨勢
+            if "上漲" not in trend_message and "下跌" not in trend_message: # Avoid overwriting more specific trends
+                trend_message = "下跌趨勢 ⬇️"
 
     return trend_message
 
@@ -162,14 +176,22 @@ if fetch_button:
                 st.subheader("價格與移動平均線")
                 # 確保只繪製 DataFrame 中存在的列
                 plot_cols_price = ["Close", "MA20", "EMA20", "Upper", "Lower"]
-                available_price_cols = [col for col in plot_cols_price if col in data_with_indicators.columns]
-                st.line_chart(data_with_indicators[available_price_cols])
+                available_price_cols = [col for col in plot_cols_price if col in data_with_indicators.columns and not data_with_indicators[col].isnull().all()]
+                if available_price_cols:
+                    st.line_chart(data_with_indicators[available_price_cols])
+                else:
+                    st.info("沒有足夠的價格或移動平均線數據可供繪製。")
+
 
                 # 繪製 MACD 指標圖
                 st.subheader("MACD 指標")
                 plot_cols_macd = ["MACD", "Signal"]
-                available_macd_cols = [col for col in plot_cols_macd if col in data_with_indicators.columns]
-                st.line_chart(data_with_indicators[available_macd_cols])
+                available_macd_cols = [col for col in plot_cols_macd if col in data_with_indicators.columns and not data_with_indicators[col].isnull().all()]
+                if available_macd_cols:
+                    st.line_chart(data_with_indicators[available_macd_cols])
+                else:
+                    st.info("沒有足夠的MACD數據可供繪製。")
+
 
                 # 顯示最新數據概覽
                 st.subheader("最新數據概覽")
