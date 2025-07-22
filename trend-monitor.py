@@ -2,6 +2,11 @@ import yfinance as yf
 import pandas as pd
 import streamlit as st
 import plotly.graph_objects as go
+import logging
+
+# Set up logging for debugging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- 配置與相容性檢查 ---
 VALID_INTERVALS = {
@@ -53,14 +58,14 @@ def get_stock_data(ticker_symbol, period_val, interval_val):
     從 Yahoo Finance 下載股票數據。
     根據 interval_val 動態設置 TTL。
     """
-    # 計算 TTL
     ttl = 300 if interval_val in ["1m", "2m", "5m", "15m"] else 3600
+    logger.info(f"Fetching data for {ticker_symbol}, period={period_val}, interval={interval_val}, ttl={ttl}")
     
     @st.cache_data(ttl=ttl)
     def _fetch_data(ticker_symbol, period_val, interval_val):
         try:
             with st.spinner(f"正在下載 {ticker_symbol} 的數據..."):
-                data = yf.download(ticker_symbol, period=period_val, interval=interval_val, progress=False)
+                data = yf.download(ticker_symbol, period=period_val, interval=interval_val, progress=False, auto_adjust=False)
             if data.empty:
                 st.warning(f"沒有找到 {ticker_symbol} 在週期 {period_val} 內，間隔為 {interval_val} 的數據。請檢查股票代碼或數據週期。")
                 return None
@@ -214,7 +219,7 @@ if fetch_button:
     stock_data = get_stock_data(symbol, period, interval)
     if stock_data is not None:
         data_with_indicators = calculate_indicators(stock_data)
-        if data_with_indicators is not None:
+        if data_with_indicators is not None and isinstance(data_with_indicators, pd.DataFrame):
             # 趨勢分析
             trend_message, trend_explanation = analyze_trend(data_with_indicators)
             st.write(f"當前股票：**{symbol}**")
@@ -226,6 +231,7 @@ if fetch_button:
             fig_price = go.Figure()
             plot_cols_price = ["Close", "MA20", "EMA20", "Upper", "Lower"]
             colors = ["blue", "orange", "green", "red", "red"]
+            plot_added = False
             for col, color in zip(plot_cols_price, colors):
                 if col in data_with_indicators.columns and data_with_indicators[col].notna().any():
                     fig_price.add_trace(go.Scatter(
@@ -234,19 +240,24 @@ if fetch_button:
                         name=col,
                         line=dict(color=color, dash="dash" if col in ["Upper", "Lower"] else "solid")
                     ))
-            fig_price.update_layout(
-                title=f"{symbol} 價格與移動平均線",
-                xaxis_title="日期",
-                yaxis_title="價格",
-                showlegend=True,
-                hovermode="x unified"
-            )
-            st.plotly_chart(fig_price, use_container_width=True)
+                    plot_added = True
+            if plot_added:
+                fig_price.update_layout(
+                    title=f"{symbol} 價格與移動平均線",
+                    xaxis_title="日期",
+                    yaxis_title="價格",
+                    showlegend=True,
+                    hovermode="x unified"
+                )
+                st.plotly_chart(fig_price, use_container_width=True)
+            else:
+                st.info("沒有足夠的價格或移動平均線數據可供繪製。")
 
             # MACD 圖
             st.subheader("MACD 指標")
             fig_macd = go.Figure()
             plot_cols_macd = ["MACD", "Signal"]
+            plot_added = False
             for col, color in zip(plot_cols_macd, ["blue", "orange"]):
                 if col in data_with_indicators.columns and data_with_indicators[col].notna().any():
                     fig_macd.add_trace(go.Scatter(
@@ -255,14 +266,18 @@ if fetch_button:
                         name=col,
                         line=dict(color=color)
                     ))
-            fig_macd.update_layout(
-                title=f"{symbol} MACD 指標",
-                xaxis_title="日期",
-                yaxis_title="MACD",
-                showlegend=True,
-                hovermode="x unified"
-            )
-            st.plotly_chart(fig_macd, use_container_width=True)
+                    plot_added = True
+            if plot_added:
+                fig_macd.update_layout(
+                    title=f"{symbol} MACD 指標",
+                    xaxis_title="日期",
+                    yaxis_title="MACD",
+                    showlegend=True,
+                    hovermode="x unified"
+                )
+                st.plotly_chart(fig_macd, use_container_width=True)
+            else:
+                st.info("沒有足夠的MACD數據可供繪製。")
 
             # 數據概覽
             st.subheader("最新數據概覽")
@@ -278,7 +293,7 @@ if fetch_button:
                 mime="text/csv"
             )
         else:
-            st.info("無法計算指標，請檢查數據是否足夠。")
+            st.info("無法計算指標，請檢查數據是否足夠或數據格式是否正確。")
     else:
         st.info("無法獲取股票數據。請檢查股票代碼或網路連接。")
 else:
