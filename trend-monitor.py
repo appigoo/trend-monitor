@@ -66,14 +66,18 @@ def get_stock_data(ticker_symbol, period_val, interval_val):
         try:
             with st.spinner(f"正在下載 {ticker_symbol} 的數據..."):
                 data = yf.download(ticker_symbol, period=period_val, interval=interval_val, progress=False, auto_adjust=False)
-            if data.empty:
+            if data.empty or 'Close' not in data.columns:
+                logger.warning(f"No data found for {ticker_symbol}, period={period_val}, interval={interval_val}")
                 st.warning(f"沒有找到 {ticker_symbol} 在週期 {period_val} 內，間隔為 {interval_val} 的數據。請檢查股票代碼或數據週期。")
                 return None
+            logger.info(f"Successfully fetched data for {ticker_symbol}, shape={data.shape}")
             return data
         except ValueError as ve:
+            logger.error(f"Invalid parameter combination: {ve}")
             st.error(f"無效的參數組合：{ve}。請檢查數據週期和間隔是否相容。")
             return None
         except Exception as e:
+            logger.error(f"Failed to fetch data: {e}")
             st.error(f"下載數據失敗：{e}。可能是網絡問題或無效的股票代碼。")
             return None
     
@@ -86,8 +90,9 @@ def calculate_indicators(df):
     為給定的 DataFrame 計算技術指標。
     返回包含所有指標的 DataFrame。
     """
-    if df is None or df.empty:
-        st.warning("輸入數據為空，無法計算指標。")
+    if df is None or df.empty or 'Close' not in df.columns:
+        logger.warning("Invalid input data for calculate_indicators")
+        st.warning("輸入數據為空或缺少 'Close' 列，無法計算指標。")
         return None
 
     df_copy = df.copy()
@@ -127,16 +132,19 @@ def calculate_indicators(df):
     # 顯示所有警告
     if warnings:
         st.warning("\n".join(warnings))
+        logger.warning(f"Indicator calculation warnings: {warnings}")
 
+    logger.info(f"Indicators calculated, shape={df_copy.shape}")
     return df_copy
 
 # --- 函數：趨勢分析 ---
-def analyze_trend(df):
+def analyze oggetti_trend(df):
     """
     根據技術指標分析股票趨勢。
     返回趨勢描述和詳細解釋。
     """
     if df is None or df.empty or "Close" not in df.columns:
+        logger.warning("Invalid input data for analyze_trend")
         return "無數據", "無法分析趨勢：數據缺失或無效。"
 
     # 提取最新數據
@@ -160,6 +168,7 @@ def analyze_trend(df):
     lower_band = get_indicator("Lower")
 
     if close_price is None:
+        logger.warning("Close price is missing")
         return "無數據", "最新收盤價數據缺失或無效，無法判斷趨勢。"
 
     # 布林帶判斷
@@ -210,6 +219,7 @@ def analyze_trend(df):
         elif recent_closes.is_monotonic_decreasing:
             explanation.append("過去5個交易日收盤價持續下跌，顯示短期弱勢。")
 
+    logger.info(f"Trend analysis completed: {trend_message}")
     return trend_message, "\n".join(explanation) if explanation else "無明確趨勢信號。"
 
 # --- 主應用程式邏輯 ---
@@ -217,9 +227,11 @@ st.title("📊 股票趨勢監測系統")
 
 if fetch_button:
     stock_data = get_stock_data(symbol, period, interval)
-    if stock_data is not None:
+    if stock_data is not None and isinstance(stock_data, pd.DataFrame) and not stock_data.empty:
         data_with_indicators = calculate_indicators(stock_data)
-        if data_with_indicators is not None and isinstance(data_with_indicators, pd.DataFrame):
+        if data_with_indicators is not None and isinstance(data_with_indicators, pd.DataFrame) and not data_with_indicators.empty:
+            logger.info(f"Data with indicators shape: {data_with_indicators.shape}, columns: {list(data_with_indicators.columns)}")
+            
             # 趨勢分析
             trend_message, trend_explanation = analyze_trend(data_with_indicators)
             st.write(f"當前股票：**{symbol}**")
@@ -232,15 +244,16 @@ if fetch_button:
             plot_cols_price = ["Close", "MA20", "EMA20", "Upper", "Lower"]
             colors = ["blue", "orange", "green", "red", "red"]
             plot_added = False
-            for col, color in zip(plot_cols_price, colors):
-                if col in data_with_indicators.columns and data_with_indicators[col].notna().any():
-                    fig_price.add_trace(go.Scatter(
-                        x=data_with_indicators.index,
-                        y=data_with_indicators[col],
-                        name=col,
-                        line=dict(color=color, dash="dash" if col in ["Upper", "Lower"] else "solid")
-                    ))
-                    plot_added = True
+            if isinstance(data_with_indicators, pd.DataFrame):
+                for col, color in zip(plot_cols_price, colors):
+                    if col in data_with_indicators.columns and data_with_indicators[col].notna().any():
+                        fig_price.add_trace(go.Scatter(
+                            x=data_with_indicators.index,
+                            y=data_with_indicators[col],
+                            name=col,
+                            line=dict(color=color, dash="dash" if col in ["Upper", "Lower"] else "solid")
+                        ))
+                        plot_added = True
             if plot_added:
                 fig_price.update_layout(
                     title=f"{symbol} 價格與移動平均線",
@@ -251,6 +264,7 @@ if fetch_button:
                 )
                 st.plotly_chart(fig_price, use_container_width=True)
             else:
+                logger.warning("No valid data for price plot")
                 st.info("沒有足夠的價格或移動平均線數據可供繪製。")
 
             # MACD 圖
@@ -258,15 +272,16 @@ if fetch_button:
             fig_macd = go.Figure()
             plot_cols_macd = ["MACD", "Signal"]
             plot_added = False
-            for col, color in zip(plot_cols_macd, ["blue", "orange"]):
-                if col in data_with_indicators.columns and data_with_indicators[col].notna().any():
-                    fig_macd.add_trace(go.Scatter(
-                        x=data_with_indicators.index,
-                        y=data_with_indicators[col],
-                        name=col,
-                        line=dict(color=color)
-                    ))
-                    plot_added = True
+            if isinstance(data_with_indicators, pd.DataFrame):
+                for col, color in zip(plot_cols_macd, ["blue", "orange"]):
+                    if col in data_with_indicators.columns and data_with_indicators[col].notna().any():
+                        fig_macd.add_trace(go.Scatter(
+                            x=data_with_indicators.index,
+                            y=data_with_indicators[col],
+                            name=col,
+                            line=dict(color=color)
+                        ))
+                        plot_added = True
             if plot_added:
                 fig_macd.update_layout(
                     title=f"{symbol} MACD 指標",
@@ -277,6 +292,7 @@ if fetch_button:
                 )
                 st.plotly_chart(fig_macd, use_container_width=True)
             else:
+                logger.warning("No valid data for MACD plot")
                 st.info("沒有足夠的MACD數據可供繪製。")
 
             # 數據概覽
@@ -293,8 +309,10 @@ if fetch_button:
                 mime="text/csv"
             )
         else:
+            logger.warning("Invalid or empty data_with_indicators")
             st.info("無法計算指標，請檢查數據是否足夠或數據格式是否正確。")
     else:
+        logger.warning("Invalid or empty stock_data")
         st.info("無法獲取股票數據。請檢查股票代碼或網路連接。")
 else:
     st.info("請在左側邊欄輸入股票代碼、選擇數據週期和數據間隔，然後點擊 '獲取數據'。")
