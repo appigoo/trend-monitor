@@ -1,5 +1,4 @@
-yfinance
-pandas
-ta
 streamlit
 streamlit-autorefresh
+yfinance
+pandas
