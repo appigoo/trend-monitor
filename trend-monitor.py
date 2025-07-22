@@ -16,11 +16,12 @@ interval = st.sidebar.selectbox(
     index=3 # 預設選擇 '15m'
 )
 
-# 日期選擇器，用於指定數據的開始和結束日期
-today = datetime.date.today()
-default_start_date = today - datetime.timedelta(days=30) # 預設為過去30天
-start_date = st.sidebar.date_input("開始日期", default_start_date)
-end_date = st.sidebar.date_input("結束日期", today)
+# 數據週期選擇器，替換了日期選擇器
+period = st.sidebar.selectbox(
+    "數據週期",
+    ["1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max"],
+    index=2 # 預設選擇 '1mo'
+)
 
 # 觸發數據獲取的按鈕
 fetch_button = st.sidebar.button("獲取數據")
@@ -28,16 +29,17 @@ fetch_button = st.sidebar.button("獲取數據")
 # --- 函數：數據下載與快取 ---
 
 @st.cache_data(ttl=3600) # 快取數據，有效期為1小時
-def get_stock_data(ticker_symbol, start, end, interval_val):
+def get_stock_data(ticker_symbol, period_val, interval_val):
     """
     從 Yahoo Finance 下載股票數據。
     使用 Streamlit 的快取功能提升性能。
     """
     try:
         with st.spinner(f"正在下載 {ticker_symbol} 的數據..."):
-            data = yf.download(ticker_symbol, start=start, end=end, interval=interval_val)
+            # 使用 period 參數下載數據
+            data = yf.download(ticker_symbol, period=period_val, interval=interval_val)
         if data.empty:
-            st.warning(f"沒有找到 {ticker_symbol} 在 {start} 到 {end} 期間，間隔為 {interval_val} 的數據。請檢查股票代碼或日期範圍。")
+            st.warning(f"沒有找到 {ticker_symbol} 在週期 {period_val} 內，間隔為 {interval_val} 的數據。請檢查股票代碼或數據週期。")
             return None
         return data
     except Exception as e:
@@ -179,53 +181,50 @@ st.title("📊 股票趨勢監測系統")
 
 # 當點擊「獲取數據」按鈕時執行
 if fetch_button:
-    # 檢查日期範圍是否有效
-    if start_date >= end_date:
-        st.error("錯誤：開始日期必須早於結束日期。")
-    else:
-        # 1. 下載數據
-        stock_data = get_stock_data(symbol, start_date, end_date, interval)
+    # 1. 下載數據
+    # 傳遞 period 參數給 get_stock_data
+    stock_data = get_stock_data(symbol, period, interval)
 
-        if stock_data is not None:
-            # 2. 計算指標
-            data_with_indicators = calculate_indicators(stock_data)
+    if stock_data is not None:
+        # 2. 計算指標
+        data_with_indicators = calculate_indicators(stock_data)
 
-            if data_with_indicators is not None:
-                # 3. 分析趨勢
-                current_trend = analyze_trend(data_with_indicators)
+        if data_with_indicators is not None:
+            # 3. 分析趨勢
+            current_trend = analyze_trend(data_with_indicators)
 
-                # 顯示股票代碼和趨勢判斷
-                st.write(f"當前股票：**{symbol}**")
-                st.markdown(f"**趨勢判斷：{current_trend}**")
+            # 顯示股票代碼和趨勢判斷
+            st.write(f"當前股票：**{symbol}**")
+            st.markdown(f"**趨勢判斷：{current_trend}**")
 
-                # 繪製價格與移動平均線圖
-                st.subheader("價格與移動平均線")
-                # 確保只繪製 DataFrame 中存在的列，並且該列包含至少一個非 NaN 值
-                plot_cols_price = ["Close", "MA20", "EMA20", "Upper", "Lower"]
-                available_price_cols = [col for col in plot_cols_price if col in data_with_indicators.columns and data_with_indicators[col].notna().any()]
-                if available_price_cols:
-                    st.line_chart(data_with_indicators[available_price_cols])
-                else:
-                    st.info("沒有足夠的價格或移動平均線數據可供繪製。")
-
-
-                # 繪製 MACD 指標圖
-                st.subheader("MACD 指標")
-                plot_cols_macd = ["MACD", "Signal"]
-                available_macd_cols = [col for col in plot_cols_macd if col in data_with_indicators.columns and data_with_indicators[col].notna().any()]
-                if available_macd_cols:
-                    st.line_chart(data_with_indicators[available_macd_cols])
-                else:
-                    st.info("沒有足夠的MACD數據可供繪製。")
-
-
-                # 顯示最新數據概覽
-                st.subheader("最新數據概覽")
-                st.dataframe(data_with_indicators.tail(10))
+            # 繪製價格與移動平均線圖
+            st.subheader("價格與移動平均線")
+            # 確保只繪製 DataFrame 中存在的列，並且該列包含至少一個非 NaN 值
+            plot_cols_price = ["Close", "MA20", "EMA20", "Upper", "Lower"]
+            available_price_cols = [col for col in plot_cols_price if col in data_with_indicators.columns and data_with_indicators[col].notna().any()]
+            if available_price_cols:
+                st.line_chart(data_with_indicators[available_price_cols])
             else:
-                st.info("無法計算指標，請檢查數據是否足夠。")
+                st.info("沒有足夠的價格或移動平均線數據可供繪製。")
+
+
+            # 繪製 MACD 指標圖
+            st.subheader("MACD 指標")
+            plot_cols_macd = ["MACD", "Signal"]
+            available_macd_cols = [col for col in plot_cols_macd if col in data_with_indicators.columns and data_with_indicators[col].notna().any()]
+            if available_macd_cols:
+                st.line_chart(data_with_indicators[available_macd_cols])
+            else:
+                st.info("沒有足夠的MACD數據可供繪製。")
+
+
+            # 顯示最新數據概覽
+            st.subheader("最新數據概覽")
+            st.dataframe(data_with_indicators.tail(10))
         else:
-            st.info("無法獲取股票數據。請檢查股票代碼或網路連接。")
+            st.info("無法計算指標，請檢查數據是否足夠。")
+    else:
+        st.info("無法獲取股票數據。請檢查股票代碼或網路連接。")
 else:
     # 應用程式啟動時的提示訊息
-    st.info("請在左側邊欄輸入股票代碼、選擇日期範圍和數據間隔，然後點擊 '獲取數據'。")
+    st.info("請在左側邊欄輸入股票代碼、選擇數據週期和數據間隔，然後點擊 '獲取數據'。")
