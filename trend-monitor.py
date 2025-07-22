@@ -48,25 +48,31 @@ interval = st.sidebar.selectbox(
 fetch_button = st.sidebar.button("獲取數據")
 
 # --- 函數：數據下載與快取 ---
-@st.cache_data(ttl=lambda: 300 if interval in ["1m", "2m", "5m", "15m"] else 3600)
 def get_stock_data(ticker_symbol, period_val, interval_val):
     """
     從 Yahoo Finance 下載股票數據。
-    動態快取時間根據間隔調整（分鐘級數據快取5分鐘，其他1小時）。
+    根據 interval_val 動態設置 TTL。
     """
-    try:
-        with st.spinner(f"正在下載 {ticker_symbol} 的數據..."):
-            data = yf.download(ticker_symbol, period=period_val, interval=interval_val, progress=False)
-        if data.empty:
-            st.warning(f"沒有找到 {ticker_symbol} 在週期 {period_val} 內，間隔為 {interval_val} 的數據。請檢查股票代碼或數據週期。")
+    # 計算 TTL
+    ttl = 300 if interval_val in ["1m", "2m", "5m", "15m"] else 3600
+    
+    @st.cache_data(ttl=ttl)
+    def _fetch_data(ticker_symbol, period_val, interval_val):
+        try:
+            with st.spinner(f"正在下載 {ticker_symbol} 的數據..."):
+                data = yf.download(ticker_symbol, period=period_val, interval=interval_val, progress=False)
+            if data.empty:
+                st.warning(f"沒有找到 {ticker_symbol} 在週期 {period_val} 內，間隔為 {interval_val} 的數據。請檢查股票代碼或數據週期。")
+                return None
+            return data
+        except ValueError as ve:
+            st.error(f"無效的參數組合：{ve}。請檢查數據週期和間隔是否相容。")
             return None
-        return data
-    except ValueError as ve:
-        st.error(f"無效的參數組合：{ve}。請檢查數據週期和間隔是否相容。")
-        return None
-    except Exception as e:
-        st.error(f"下載數據失敗：{e}。可能是網絡問題或無效的股票代碼。")
-        return None
+        except Exception as e:
+            st.error(f"下載數據失敗：{e}。可能是網絡問題或無效的股票代碼。")
+            return None
+    
+    return _fetch_data(ticker_symbol, period_val, interval_val)
 
 # --- 函數：指標計算 ---
 @st.cache_data(ttl=3600)
