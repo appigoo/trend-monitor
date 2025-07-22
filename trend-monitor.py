@@ -110,9 +110,16 @@ def analyze_trend(df):
     trend_message = "震盪 ↔️"
 
     # 在進行比較前，檢查關鍵指標是否存在 NaN 值
-    # 這裡只檢查 Close，因為其他指標可能因為數據不足而為 NaN，這在邏輯中會處理
-    if pd.isna(latest["Close"]):
-        return "最新收盤價數據缺失，無法判斷趨勢"
+    # 使用 .item() 確保獲取的是標量值，避免 Series 的布林值歧義錯誤
+    try:
+        # 檢查 'Close' 列是否存在於 latest Series 中，並確保其不是 NaN
+        if "Close" not in latest or pd.isna(latest["Close"].item()):
+            return "最新收盤價數據缺失或無效，無法判斷趨勢"
+    except ValueError: # 如果 .item() 失敗 (例如，latest["Close"] 不是單一標量)
+        return "最新收盤價數據格式異常，無法判斷趨勢"
+    except KeyError: # 如果 'Close' 列不存在
+        return "數據中缺少 'Close' 列，無法判斷趨勢"
+
 
     # 布林帶突破判斷
     if not pd.isna(latest["Upper"]) and latest["Close"] > latest["Upper"]:
