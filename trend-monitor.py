@@ -104,7 +104,7 @@ def analyze_trend(df):
 
     # 布林帶突破判斷
     if not pd.isna(latest["Upper"]) and latest["Close"] > latest["Upper"]:
-        trend_message = "可能突破上漲 � (布林帶)"
+        trend_message = "可能突破上漲 📈 (布林帶)"
     elif not pd.isna(latest["Lower"]) and latest["Close"] < latest["Lower"]:
         trend_message = "可能突破下跌 📉 (布林帶)"
     # MACD 金叉/死叉判斷 (需要前一個數據點來判斷交叉)
@@ -181,4 +181,3 @@ if fetch_button:
 else:
     # 應用程式啟動時的提示訊息
     st.info("請在左側邊欄輸入股票代碼、選擇日期範圍和數據間隔，然後點擊 '獲取數據'。")
-�
