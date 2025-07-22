@@ -85,7 +85,7 @@ def calculate_indicators(df):
     # 布林帶 (Bollinger Bands)
     if len(df_copy) >= 20: # MA20 和標準差需要至少20個週期
         # Ensure MA20 is calculated before using it for Bollinger Bands
-        if not df_copy["MA20"].isnull().all(): # Check if MA20 actually has values
+        if not bool(df_copy["MA20"].isnull().all()): # Check if MA20 actually has values
             df_copy["Upper"] = df_copy["MA20"] + 2 * df_copy["Close"].rolling(window=20).std()
             df_copy["Lower"] = df_copy["MA20"] - 2 * df_copy["Close"].rolling(window=20).std()
         else:
@@ -201,7 +201,7 @@ if fetch_button:
                 st.subheader("價格與移動平均線")
                 # 確保只繪製 DataFrame 中存在的列
                 plot_cols_price = ["Close", "MA20", "EMA20", "Upper", "Lower"]
-                available_price_cols = [col for col in plot_cols_price if col in data_with_indicators.columns and not data_with_indicators[col].isnull().all()]
+                available_price_cols = [col for col in plot_cols_price if col in data_with_indicators.columns and not bool(data_with_indicators[col].isnull().all())]
                 if available_price_cols:
                     st.line_chart(data_with_indicators[available_price_cols])
                 else:
@@ -211,7 +211,7 @@ if fetch_button:
                 # 繪製 MACD 指標圖
                 st.subheader("MACD 指標")
                 plot_cols_macd = ["MACD", "Signal"]
-                available_macd_cols = [col for col in plot_cols_macd if col in data_with_indicators.columns and not data_with_indicators[col].isnull().all()]
+                available_macd_cols = [col for col in plot_cols_macd if col in data_with_indicators.columns and not bool(data_with_indicators[col].isnull().all())]
                 if available_macd_cols:
                     st.line_chart(data_with_indicators[available_macd_cols])
                 else:
