@@ -30,21 +30,33 @@ while True:
             st.warning("⚠️ 请输入至少一个有效的股票代号。")
         else:
             for ticker in selected_tickers:
-                stock = yf.Ticker(ticker)
-                try:
-                    data = stock.history(period=selected_period, interval=selected_interval)
-                    current_price = data["Close"].iloc[-1]
-                    previous_close = stock.info.get('previousClose', current_price)
-                    change = current_price - previous_close
-                    pct_change = (change / previous_close) * 100
-                    
-                    st.metric(label=f"{ticker}", value=f"${current_price:.2f}",
-                              delta=f"{change:.2f} ({pct_change:.2f}%)")
+    stock = yf.Ticker(ticker)
+    try:
+        data = stock.history(period=selected_period, interval=selected_interval)
+        current_price = data["Close"].iloc[-1]
+        previous_close = stock.info.get('previousClose', current_price)
+        change = current_price - previous_close
+        pct_change = (change / previous_close) * 100
 
-                    # 显示历史数据表格
-                    st.dataframe(data.tail(5))
-                except Exception as e:
-                    st.warning(f"🚫 无法取得 {ticker} 的资料：{e}")
+        # 计算成交量变化
+        last_volume = data["Volume"].iloc[-1]
+        prev_volume = data["Volume"].iloc[-2] if len(data) > 1 else last_volume
+        volume_change = last_volume - prev_volume
+        volume_pct_change = (volume_change / prev_volume) * 100 if prev_volume != 0 else 0
+
+        # 显示价格变动
+        st.metric(label=f"{ticker} 股价", value=f"${current_price:.2f}",
+                  delta=f"{change:.2f} ({pct_change:.2f}%)")
+
+        # 显示成交量变动
+        st.metric(label=f"{ticker} 成交量", value=f"{last_volume:,}",
+                  delta=f"{volume_change:,} ({volume_pct_change:.2f}%)")
+
+        st.dataframe(data.tail(5))
+        
+    except Exception as e:
+        st.warning(f"🚫 无法取得 {ticker} 的资料：{e}")
+
         
         st.markdown("---")
         st.info("页面将在 5 分钟后自动刷新...")
