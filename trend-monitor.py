@@ -58,7 +58,7 @@ input_tickers = st.text_input("請輸入股票代號（逗號分隔）", value="
 selected_tickers = [t.strip().upper() for t in input_tickers.split(",") if t.strip()]
 selected_period = st.selectbox("選擇時間範圍", period_options, index=1)
 selected_interval = st.selectbox("選擇資料間隔", interval_options, index=1)
-window_size = st.slider("滑動平均窗口大小", min_value=2, max_value=20, value=5)
+window_size = st.slider("滑動平均窗口大小", min_value=2, max_value=40, value=5)
 
 placeholder = st.empty()
 
