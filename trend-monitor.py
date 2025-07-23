@@ -120,7 +120,7 @@ while True:
                 st.subheader(f"📋 歷史資料：{ticker}")
                 #st.dataframe(data[["Datetime", "Close", "Price Change %", "Volume", "Volume Change %", "異動標記"]].tail(10))
                 ### 2 ###
-                st.dataframe(data[[ "Datetime", "Close", "Price Change %", "📈 股價漲跌幅 (%)", "Volume", "Volume Change %", "📊 成交量變動幅 (%)", "異動標記" ]].tail(10),height=800,use_container_width=True)
+                st.dataframe(data[[ "Datetime", "Close", "Price Change %", "📈 股價漲跌幅 (%)", "Volume", "Volume Change %", "📊 成交量變動幅 (%)", "異動標記" ]].tail(10),height=600,use_container_width=True)
                 ### 2 ###
             except Exception as e:
                 st.error(f"⚠️ 無法取得 {ticker} 的資料：{e}")
