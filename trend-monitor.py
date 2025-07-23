@@ -16,9 +16,7 @@ PRICE_THRESHOLD = 2.0   # 股价变化百分比
 VOLUME_THRESHOLD = 50.0 # 成交量变化百分比
 
 # Gmail 发信者帐号设置
-#SENDER_EMAIL = "你的@gmail.com"
-#SENDER_PASSWORD = "你的應用程式密碼"
-#RECIPIENT_EMAIL = "收件人@example.com"
+
 ##
  # 本地开发使用，线上部署不会用到 .env 文件
 
