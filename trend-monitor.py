@@ -55,7 +55,7 @@ period_options = ["1d", "5d", "1mo", "3mo", "6mo", "1y"]
 interval_options = ["1m", "5m", "15m", "1h", "1d"]
 
 st.title("📊 股票監控儀表板（含異動提醒與 Email 通知 ✅）")
-input_tickers = st.text_input("請輸入股票代號（逗號分隔）", value="AAPL, MSFT, TSLA")
+input_tickers = st.text_input("請輸入股票代號（逗號分隔）", value="TSLA, NIO, TSLL")
 selected_tickers = [t.strip().upper() for t in input_tickers.split(",") if t.strip()]
 selected_period = st.selectbox("選擇時間範圍", period_options, index=1)
 selected_interval = st.selectbox("選擇資料間隔", interval_options, index=1)
