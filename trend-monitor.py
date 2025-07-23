@@ -74,6 +74,7 @@ while True:
                 data["Price Change %"] = data["Close"].pct_change() * 100
                 data["Volume Change %"] = data["Volume"].pct_change() * 100
                 ### 1 ###
+                window_size = st.slider("滑動平均窗口大小", min_value=2, max_value=20, value=5)
                 # 計算前 5 筆平均收盤價與平均成交量
                 data["前5均價"] = data["Price Change %"].rolling(window=5).mean()
                 data["前5均量"] = data["Volume"].rolling(window=5).mean()
