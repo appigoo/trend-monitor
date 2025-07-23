@@ -53,12 +53,6 @@ def calculate_technical_indicators(data):
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / loss
     data['RSI'] = 100 - (100 / (1 + rs))
-    # 計算 MACD
-    ema12 = data['Close'].ewm(span=12, adjust=False).mean()
-    ema26 = data['Close'].ewm(span=26, adjust=False).mean()
-    data['MACD'] = ema12 - ema26
-    data['Signal'] = data['MACD'].ewm(span=9, adjust=False).mean()
-    data['Histogram'] = data['MACD'] - data['Signal']
     return data
 
 # 獲取股票數據的函數
@@ -162,52 +156,12 @@ fig_rsi.update_layout(
 )
 st.plotly_chart(fig_rsi, use_container_width=True)
 
-# 繪製 MACD 圖表
-fig_macd = go.Figure()
-for ticker in tickers:
-    if ticker in st.session_state.stock_data and not st.session_state.stock_data[ticker].empty:
-        data = st.session_state.stock_data[ticker]
-        fig_macd.add_trace(
-            go.Scatter(
-                x=data.index,
-                y=data['MACD'],
-                mode='lines',
-                name=f"{ticker} MACD"
-            )
-        )
-        fig_macd.add_trace(
-            go.Scatter(
-                x=data.index,
-                y=data['Signal'],
-                mode='lines',
-                name=f"{ticker} 訊號線",
-                line=dict(dash='dash')
-            )
-        )
-        fig_macd.add_trace(
-            go.Bar(
-                x=data.index,
-                y=data['Histogram'],
-                name=f"{ticker} 柱狀圖",
-                marker_color=np.where(data['Histogram'] >= 0, 'green', 'red')
-            )
-        )
-fig_macd.add_hline(y=0, line_color="gray", line_dash="dash")
-fig_macd.update_layout(
-    title="MACD 指標",
-    xaxis_title="時間",
-    yaxis_title="MACD",
-    template="plotly_dark",
-    showlegend=True
-)
-st.plotly_chart(fig_macd, use_container_width=True)
-
 # 顯示數據表格
 st.subheader("最近數據")
 for ticker in tickers:
     if ticker in st.session_state.stock_data and not st.session_state.stock_data[ticker].empty:
         st.write(f"{ticker} 數據")
-        st.dataframe(st.session_state.stock_data[ticker][['Open', 'High', 'Low', 'Close', 'Volume', 'MA20', 'RSI', 'MACD', 'Signal', 'Histogram']].tail(10))
+        st.dataframe(st.session_state.stock_data[ticker][['Open', 'High', 'Low', 'Close', 'Volume', 'MA20', 'RSI']].tail(10))
 
 # 顯示最後更新時間
 st.write(f"最後更新時間: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
