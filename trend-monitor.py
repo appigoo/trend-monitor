@@ -73,7 +73,15 @@ while True:
                 # 計算漲跌幅百分比
                 data["Price Change %"] = data["Close"].pct_change() * 100
                 data["Volume Change %"] = data["Volume"].pct_change() * 100
-
+                ### 1 ###
+                # 計算前 5 筆平均收盤價與平均成交量
+                data["前5均價"] = data["Price Change %"].rolling(window=5).mean()
+                data["前5均量"] = data["Volume"].rolling(window=5).mean()
+                # 每筆收盤價相對於前 5 筆平均漲跌幅 (%)
+                data["📈 股價漲跌幅 (%)"] = ((data["Price Change %"] - data["前5均價"]) / data["前5均價"]) * 100
+                # 每筆成交量相對於前 5 筆平均成交量變動幅 (%)
+                data["📊 成交量變動幅 (%)"] = ((data["Volume"] - data["前5均量"]) / data["前5均量"]) * 100
+                ### 1 ###
                 # 標記是否量價異動
                 def mark_signal(row):
                     if abs(row["Price Change %"]) >= PRICE_THRESHOLD and abs(row["Volume Change %"]) >= VOLUME_THRESHOLD:
@@ -107,8 +115,10 @@ while True:
 
                 # 顯示含異動標記的歷史資料
                 st.subheader(f"📋 歷史資料：{ticker}")
-                st.dataframe(data[["Datetime", "Close", "Price Change %", "Volume", "Volume Change %", "異動標記"]].tail(10))
-
+                #st.dataframe(data[["Datetime", "Close", "Price Change %", "Volume", "Volume Change %", "異動標記"]].tail(10))
+                ### 2 ###
+                st.dataframe(data[[ "Datetime", "Close", "Price Change %", "📈 股價漲跌幅 (%)", "Volume", "Volume Change %", "📊 成交量變動幅 (%)", "異動標記" ]].tail(10))
+                ### 2 ###
             except Exception as e:
                 st.error(f"⚠️ 無法取得 {ticker} 的資料：{e}")
 
