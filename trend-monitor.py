@@ -6,16 +6,25 @@ import time
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from dotenv import load_dotenv
+import os
 
+load_dotenv() 
 # 异动阈值设定
 REFRESH_INTERVAL = 300  # 秒，5 分钟自动刷新
 PRICE_THRESHOLD = 2.0   # 股价变化百分比
 VOLUME_THRESHOLD = 50.0 # 成交量变化百分比
 
 # Gmail 发信者帐号设置
-SENDER_EMAIL = "你的@gmail.com"
-SENDER_PASSWORD = "你的應用程式密碼"
-RECIPIENT_EMAIL = "收件人@example.com"
+#SENDER_EMAIL = "你的@gmail.com"
+#SENDER_PASSWORD = "你的應用程式密碼"
+#RECIPIENT_EMAIL = "收件人@example.com"
+##
+ # 本地开发使用，线上部署不会用到 .env 文件
+
+SENDER_EMAIL = os.getenv("SENDER_EMAIL")
+SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")
+RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL")
 
 # 邮件发送函数
 def send_email_alert(ticker, price_pct, volume_pct):
